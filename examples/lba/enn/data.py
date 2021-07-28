@@ -86,6 +86,8 @@ def collate_lba(batch):
 
     """
     batch = {prop: batch_stack([mol[prop] for mol in batch]) for prop in batch[0].keys()}
+    import pdb
+    #pdb.set_trace()
     # Define which fields to keep 
     to_keep = (batch['charges'].sum(0) > 0)
     # Start building the new batch
@@ -94,7 +96,8 @@ def collate_lba(batch):
     new_batch['neglog_aff'] = batch['neglog_aff']
     # Split structural data and drop zeros
     for key in ['charges','positions','one_hot']:
-        new_batch[key] = drop_zeros( batch[key], key, to_keep )
+        #new_batch[key] = drop_zeros( batch[key], key, to_keep )
+        new_batch[key] = batch[key]
     # Define the atom mask
     atom_mask = new_batch['charges'] > 0
     new_batch['atom_mask'] = atom_mask

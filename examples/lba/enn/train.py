@@ -10,17 +10,20 @@ from cormorant.engine import init_optimizer, init_scheduler
 from cormorant.models.autotest import cormorant_tests
 # Functions that have been adapted from cormorant functions
 from utils import init_cormorant_argparse, init_cormorant_file_paths
-# LBA-specific model 
+# LBA-specific model in ATOM3D
 from model import ENN_LBA, ENN_LBA_Siamese
 # Methods to load and handle LBA data
 from data import CormorantDatasetLBA, collate_lba, collate_lba_siamese, initialize_lba_data
 
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.xla_multiprocessing as xmp
+import torch_xla.distributed.parallel_loader as pl
 # This makes printing tensors more readable.
 torch.set_printoptions(linewidth=1000, threshold=100000)
 
 logger = logging.getLogger('')
 
-def main():
+def main(rank):
     # Initialize arguments
     args = init_cormorant_argparse('lba')
     # Initialize file paths
@@ -28,7 +31,9 @@ def main():
     # Initialize logger
     init_logger(args)
     # Initialize device and data type
-    device, dtype = init_cuda(args)
+    #device, dtype = init_cuda(args)
+    #device, dtype = 'cpu', torch.float
+    device, dtype = xm.xla_device(), torch.float
     # Initialize dataloader
     args, datasets, num_species, charge_scale = initialize_lba_data(args, args.datadir)        
     # Further differences for Siamese networks
@@ -37,9 +42,9 @@ def main():
     else:
         collate_fn = collate_lba
     # Construct PyTorch dataloaders from datasets
-    dataloaders = {split: DataLoader(dataset, batch_size=args.batch_size,
+    dataloaders = {split: pl.MpDeviceLoader(DataLoader(dataset, batch_size=args.batch_size,
                                      shuffle=args.shuffle if (split == 'train') else False,
-                                     num_workers=args.num_workers, collate_fn=collate_fn)
+                                     num_workers=args.num_workers, collate_fn=collate_fn), device)
                    for split, dataset in datasets.items()}
     # Initialize model
     if args.siamese:
@@ -74,6 +79,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    #main()
+    xmp.spawn(main, nprocs=1, args=(), start_method='fork')
 
 

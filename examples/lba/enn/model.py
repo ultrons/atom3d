@@ -12,6 +12,7 @@ from cormorant.nn import NoLayer
 from cormorant.nn import BasicMLP
 
 from atom3d.models.enn import ENN
+import torch_xla.debug.profiler as xp
 
 
 class ENN_LBA(CGModule):
@@ -129,27 +130,40 @@ class ENN_LBA(CGModule):
             
         """
         # Get and prepare the data
-        atom_scalars, atom_mask, edge_scalars, edge_mask, atom_positions = self.prepare_input(data)
+        with xp.Trace("prepare_input"):
+            atom_scalars, atom_mask, edge_scalars, edge_mask, atom_positions = self.prepare_input(data)
+        print("atom_scalars:", atom_scalars.size())
+        print("atom_mask:", atom_mask.size())
+        print("edge_scalars:", edge_scalars.size())
+        print("edge_mask:", edge_mask.size())
+        print("atom_positions:", atom_positions.size())
 
         # Calculate spherical harmonics and radial functions
         spherical_harmonics, norms = self.sph_harms(atom_positions, atom_positions)
         rad_func_levels = self.rad_funcs(norms, edge_mask * (norms > 0))
 
         # Prepare the input reps for both the atom and edge network
+        print("Input reps atoms:")
         atom_reps_in = self.input_func_atom(atom_scalars, atom_mask, edge_scalars, edge_mask, norms)
+        print("Input reps edge:")
         edge_net_in = self.input_func_edge(atom_scalars, atom_mask, edge_scalars, edge_mask, norms)
 
         # Clebsch-Gordan layers central to the network
-        atoms_all, edges_all = self.cormorant_cg(atom_reps_in, atom_mask, edge_net_in, edge_mask,
+
+        with xp.Trace("recurrent_compute"):
+            atoms_all, edges_all = self.cormorant_cg(atom_reps_in, atom_mask, edge_net_in, edge_mask,
                                                  rad_func_levels, norms, spherical_harmonics)
 
         # Construct scalars for network output
+        import pdb
+        pdb.set_trace()
         atom_scalars = self.get_scalars_atom(atoms_all)
         edge_scalars = self.get_scalars_edge(edges_all)
 
         # Prediction in this case will depend only on the atom_scalars. Can make
         # it more general here.
-        prediction = self.output_layer_atom(atom_scalars, atom_mask)
+        with xp.Trace("final_layer"):
+            prediction = self.output_layer_atom(atom_scalars, atom_mask)
 
         # Covariance test
         if covariance_test:

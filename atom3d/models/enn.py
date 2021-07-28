@@ -8,6 +8,7 @@ from cormorant.nn import CatMixReps
 from cormorant.cg_lib import CGProduct, CGModule
 
 import logging
+import torch_xla.debug.profiler as xp
 
 
 class ENN(CGModule):
@@ -125,12 +126,27 @@ class ENN(CGModule):
         # Construct iterated multipoles
         for idx, (atom_level, edge_level, max_sh) in enumerate(zip(self.atom_levels, self.edge_levels, self.max_sh)):
             # Edge representations
-            edge_net = edge_level(edge_net, atom_reps, rad_funcs[idx], edge_mask, norms)
-            edge_reps = edge_net * sph_harm[:max_sh+1]
-            # Atom representations
-            atom_reps = atom_level(atom_reps, edge_reps, atom_mask)
-            # Append the representations
-            atoms_all.append(atom_reps)
-            edges_all.append(edge_net)
+            with xp.Trace("single_unroll"):
+                print("Unrolling level: ", idx)
+                print("atom_reps.shapes:", atom_reps.shapes)
+                print("atom_mask.size:", atom_mask.size())
+                if edge_net is not None: print("edge_net.bdim:", edge_net.bdim)
+                print("edge_mask.size:", edge_mask.size())
+                print("rad_funcs.bdim:", [f.bdim for f in  rad_funcs])
+                
+                print("norms.type:", type(norms))
+                print("sph_harm.shapes:", sph_harm.shapes)
+                
+                edge_net = edge_level(edge_net, atom_reps, rad_funcs[idx], edge_mask, norms)
+                edge_reps = edge_net * sph_harm[:max_sh+1]
+                # Atom representations
+                atom_reps = atom_level(atom_reps, edge_reps, atom_mask)
+                # Append the representations
+                atoms_all.append(atom_reps)
+                edges_all.append(edge_net)
+                import torch_xla.core.xla_model as xm
+                #xm.mark_step()
+        import pdb
+        pdb.set_trace()
         return atoms_all, edges_all
 
